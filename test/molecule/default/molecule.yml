@@ -1,0 +1,51 @@
+---
+# Dependency management (download roles/collections)
+dependency:
+  name: galaxy
+  options:
+    ignore-certs: false
+    ignore-errors: false
+    role-file: requirements.yml
+    requirements-file: requirements.yml
+
+driver:
+  name: vagrant
+
+platforms:
+  - name: master
+    box: generic/ubuntu2204
+    memory: 4096
+    cpus: 2
+    groups:
+      - master
+  - name: worker1
+    box: generic/ubuntu2204
+    memory: 2048
+    cpus: 2
+    groups:
+      - workers
+  - name: worker2
+    box: generic/ubuntu2204
+    memory: 2048
+    cpus: 2
+    groups:
+      - workers
+
+provisioner:
+  name: ansible
+  config_options:
+    ssh_connection:
+      pipelining: true
+  env:
+    ANSIBLE_FORCE_COLOR: "1"
+    ANSIBLE_LIBRARY: ${MOLECULE_PROJECT_DIRECTORY}/../venv/lib/python3.12/site-packages/molecule_vagrant/modules
+    ANSIBLE_DEBUG: true
+  playbooks:
+    converge: converge.yml
+  inventory:
+    group_vars:
+      all:
+        test_env: true
+
+scenario:
+  name: default

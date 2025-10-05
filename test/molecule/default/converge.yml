@@ -1,0 +1,19 @@
+---
+# Purpose: bring the instance to the desired state by running the role under test.
+# Molecule calls this playbook with `molecule converge`.
+- name: Converge
+  hosts: all
+  gather_facts: false # Disable if your role does not rely on facts
+  tasks:
+    - name: Start Molcule Test Message
+      ansible.builtin.debug:
+        msg: "-----BEGIN MOLECULE CONVERGE-----"
+
+- name: Test Playbooks
+  import_playbook: ../../../playbooks/01.os-config.yaml
+
+- name: Test Playbooks
+  import_playbook: ../../../playbooks/02.docker.yaml
+
+- name: Test Playbooks
+  import_playbook: ../../../playbooks/03.kubernetes.yaml
