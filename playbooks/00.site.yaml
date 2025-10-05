@@ -1,0 +1,3 @@
+- import_playbook: 01.os-config.yaml
+- import_playbook: 02.docker.yaml
+- import_playbook: 03.kubernetes.yaml
