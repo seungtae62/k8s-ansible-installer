@@ -6,12 +6,16 @@
       ansible.builtin.systemd:
         name: kubelet
         state: restarted
+    - name: restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
   vars:
-    k8s_packages:
-      - kubelet
-      - kubeadm
-      - kubectl
     k8s_version: "1.34"
+    k8s_packages:
+      - "kubelet={{ k8s_version }}.*"
+      - "kubeadm={{ k8s_version }}.*"
+      - "kubectl={{ k8s_version }}.*"
 
   tasks:
     - name: Update package index
@@ -55,27 +59,38 @@
       ansible.builtin.dpkg_selections:
         name: "{{ item }}"
         selection: hold
-      loop: "{{ k8s_packages }}"
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
 
     - name: Enable kubelet service
       ansible.builtin.systemd:
         name: kubelet
         enabled: yes
 
-    - name: Configure containerd for Kubernetes
-      ansible.builtin.copy:
-        content: |
-          version = 2
-          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-              SystemdCgroup = true
-        dest: /etc/containerd/config.toml
-      notify: restart kubelet
+    - name: Generate containerd default config
+      ansible.builtin.command: containerd config default 
+      register: containerd_config
+      changed_when: false
 
-    - name: Restart containerd
-      ansible.builtin.systemd:
-        name: containerd
-        state: restarted
+    - name: Write containerd config to file
+      ansible.builtin.copy:
+        content: "{{ containerd_config.stdout }}"
+        dest: /etc/containerd/config.toml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure containerd for Kubernetes
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+      notify: restart containerd
+
+    - name: Flush handlers
+      meta: flush_handlers
 
     - name: Verify Kubernetes installation
       ansible.builtin.command: kubeadm version
