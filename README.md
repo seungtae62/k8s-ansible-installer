@@ -22,7 +22,9 @@ This project automates the deployment of a Kubernetes cluster using Ansible play
 │   ├── 00.site.yaml            # Contains all playbooks for site configuration
 │   ├── 01.os-config.yaml       # OS basic configuration
 │   ├── 02.docker.yaml          # Docker installation
-│   └── 03.kubernetes.yaml      # Kubernetes cluster setup
+│   ├── 03.kubernetes.yaml      # Kubernetes cluster setup
+│   ├── 04.cni.yaml             # Calico CNI installation
+│   └── 05.monitoring.yaml      # Prometheus/Grafana installation using Helm
 └── test/
     └── molecule/               # Molecule test configuration
 ```
@@ -90,6 +92,19 @@ Sets up Kubernetes cluster:
 - Joins worker nodes to cluster
 - Configures pod network (CIDR: 192.168.0.0/16)
 
+#### 04.cni.yaml
+Calico CNI installation:
+- Downloads and installs Calico CNI (v3.30.0)
+- Configures pod networking
+- Verifies installation
+
+#### 05.monitoring.yaml
+Prometheus/Grafana installation using Helm:
+- Installs Helm (v3.16.4)
+- Deploys kube-prometheus-stack via Helm
+- Creates monitoring namespace
+- Default Grafana credentials: admin/admin
+
 ## Usage
 
 ### Run All Playbooks
@@ -100,6 +115,8 @@ Since `ansible.cfg` specifies the default inventory path, you can run playbooks 
 ansible-playbook playbooks/01.os-config.yaml
 ansible-playbook playbooks/02.docker.yaml
 ansible-playbook playbooks/03.kubernetes.yaml
+ansible-playbook playbooks/04.cni.yaml
+ansible-playbook playbooks/05.monitoring.yaml
 ```
 
 Or run all at once:
@@ -111,20 +128,7 @@ ansible-playbook playbooks/00.site.yaml
 Alternatively, specify inventory explicitly:
 
 ```bash
-ansible-playbook -i inventory/production.yml playbooks/0.site.yaml
-```
-
-### Run Individual Playbooks
-
-```bash
-# OS configuration only
-ansible-playbook playbooks/01.os-config.yaml
-
-# Docker installation only
-ansible-playbook playbooks/02.docker.yaml
-
-# Kubernetes setup only
-ansible-playbook playbooks/03.kubernetes.yaml
+ansible-playbook -i inventory/production.yaml playbooks/00.site.yaml
 ```
 
 ### Verify Installation
@@ -169,7 +173,7 @@ In production, omit this variable or set it to `false`.
 ## Network Configuration
 
 The Kubernetes cluster uses the following network settings:
-- Pod network CIDR: `192.169.0.0/16` (Default Calico CIDR)
+- Pod network CIDR: `192.168.0.0/16` (Default Calico CIDR)
 - Service network: Default Kubernetes settings
 
 To change the pod network, modify the `--pod-network-cidr` parameter in `playbooks/03.kubernetes.yaml`:
