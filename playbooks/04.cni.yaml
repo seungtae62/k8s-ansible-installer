@@ -1,0 +1,53 @@
+---
+- name: Install Calico CNI plugin
+  hosts: master-node
+
+  vars:
+    calico_version: "v3.30.0"
+    calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
+    calico_manifest_path: "/tmp/calico.yaml"
+
+  tasks:
+    - name: Download Calico manifest
+      ansible.builtin.get_url:
+        url: "{{ calico_manifest_url }}"
+        dest: "{{ calico_manifest_path }}"
+        mode: '0644'
+
+    - name: Check if Calico is already installed
+      ansible.builtin.command: kubectl get deployment calico-kube-controllers -n kube-system
+      register: calico_check
+      failed_when: false
+      changed_when: false
+
+    - name: Apply Calico manifest
+      ansible.builtin.command: kubectl apply -f {{ calico_manifest_path }}
+      when: calico_check.rc != 0
+      register: calico_apply
+
+    - name: Wait for Calico controller to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=Available --timeout=300s deployment/calico-kube-controllers -n kube-system
+      when: calico_apply is changed
+      retries: 3
+      delay: 10
+      register: calico_controller_ready
+      until: calico_controller_ready.rc == 0
+
+    - name: Wait for Calico node pods to be ready
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=Ready --timeout=300s pod -l k8s-app=calico-node -n kube-system
+      when: calico_apply is changed
+      retries: 3
+      delay: 10
+      register: calico_nodes_ready
+      until: calico_nodes_ready.rc == 0
+
+    - name: Verify Calico installation
+      ansible.builtin.command: kubectl get pods -n kube-system -l k8s-app=calico-node
+      register: calico_pods
+      changed_when: false
+
+    - name: Display Calico pod status
+      ansible.builtin.debug:
+        msg: "{{ calico_pods.stdout_lines }}"
