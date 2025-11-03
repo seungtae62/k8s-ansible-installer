@@ -1,0 +1,154 @@
+---
+- name: Install Prometheus and Grafana using Helm
+  hosts: master-node
+  become: true
+
+  vars:
+    helm_version: "v3.16.4"
+    helm_install_dir: "/usr/local/bin"
+    monitoring_namespace: "monitoring"
+    prometheus_stack_release: "kube-prometheus-stack"
+    prometheus_chart_version: "68.2.2"
+
+  tasks:
+    ### FIX DOWNLOAD HELM ###
+    - name: Check if Helm is installed
+      ansible.builtin.command: helm version --short
+      become: false
+      register: helm_check
+      failed_when: false
+      changed_when: false
+
+    - name: Download Helm installer script
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
+        dest: "/tmp/helm_install.sh"
+        mode: '0700'
+      when: helm_check.rc != 0
+
+    - name: Install Helm
+      ansible.builtin.command: /tmp/helm_install.sh
+      when: helm_check.rc != 0
+
+    - name: Add Prometheus Helm repository
+      ansible.builtin.command: >
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      become: false
+      register: helm_repo_add
+      failed_when: false
+      changed_when: "'has been added' in helm_repo_add.stdout"
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      become: false
+      changed_when: false
+
+    - name: Create monitoring namespace
+      ansible.builtin.command: kubectl create namespace {{ monitoring_namespace }}
+      become: false
+      register: namespace_create
+      failed_when: false
+      changed_when: namespace_create.rc == 0
+
+    - name: Check if Prometheus stack is already installed
+      ansible.builtin.command: >
+        helm list -n {{ monitoring_namespace }} -o json
+      become: false
+      register: helm_list
+      changed_when: false
+
+    - name: Parse Helm list output
+      ansible.builtin.set_fact:
+        prometheus_installed: "{{ (helm_list.stdout | from_json | selectattr('name', 'equalto', prometheus_stack_release) | list | length > 0) }}"
+
+    - name: Install kube-prometheus-stack
+      ansible.builtin.command: >
+        helm install {{ prometheus_stack_release }}
+        prometheus-community/kube-prometheus-stack
+        --namespace {{ monitoring_namespace }}
+        --version {{ prometheus_chart_version }}
+        --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=10Gi
+        --set grafana.adminPassword=admin
+        --set grafana.persistence.enabled=true
+        --set grafana.persistence.size=5Gi
+      become: false
+      when: not prometheus_installed
+      register: prometheus_install
+
+    - name: Wait for Prometheus Operator deployment
+      ansible.builtin.command: >
+        kubectl wait --for=condition=Available --timeout=300s
+        deployment/{{ prometheus_stack_release }}-operator -n {{ monitoring_namespace }}
+      become: false
+      when: prometheus_install is changed
+      retries: 3
+      delay: 10
+      register: prometheus_operator_ready
+      until: prometheus_operator_ready.rc == 0
+
+    - name: Wait for Grafana deployment
+      ansible.builtin.command: >
+        kubectl wait --for=condition=Available --timeout=300s
+        deployment/{{ prometheus_stack_release }}-grafana -n {{ monitoring_namespace }}
+      become: false
+      when: prometheus_install is changed
+      retries: 3
+      delay: 10
+      register: grafana_ready
+      until: grafana_ready.rc == 0
+
+    - name: Wait for Prometheus StatefulSet
+      ansible.builtin.shell: |
+        kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 --timeout=300s \
+        statefulset/prometheus-{{ prometheus_stack_release }}-prometheus -n {{ monitoring_namespace }}
+      become: false
+      when: prometheus_install is changed
+      retries: 3
+      delay: 10
+      register: prometheus_ready
+      until: prometheus_ready.rc == 0
+
+    - name: Get monitoring pods status
+      ansible.builtin.command: kubectl get pods -n {{ monitoring_namespace }}
+      become: false
+      register: monitoring_pods
+      changed_when: false
+
+    - name: Display monitoring pods status
+      ansible.builtin.debug:
+        msg: "{{ monitoring_pods.stdout_lines }}"
+
+    - name: Get Grafana service information
+      ansible.builtin.command: >
+        kubectl get svc {{ prometheus_stack_release }}-grafana -n {{ monitoring_namespace }} -o json
+      become: false
+      register: grafana_svc
+      changed_when: false
+
+    - name: Parse Grafana service info
+      ansible.builtin.set_fact:
+        grafana_cluster_ip: "{{ (grafana_svc.stdout | from_json).spec.clusterIP }}"
+        grafana_port: "{{ (grafana_svc.stdout | from_json).spec.ports[0].port }}"
+
+    - name: Display access information
+      ansible.builtin.debug:
+        msg:
+          - "Grafana Access Information:"
+          - "  ClusterIP: {{ grafana_cluster_ip }}:{{ grafana_port }}"
+          - "  Username: admin"
+          - "  Password: admin"
+          - ""
+          - "To access Grafana from your local machine, run:"
+          - "  kubectl port-forward -n {{ monitoring_namespace }} svc/{{ prometheus_stack_release }}-grafana 3000:80"
+          - "  Then browse to: http://localhost:3000"
+          - ""
+          - "Prometheus UI:"
+          - "  kubectl port-forward -n {{ monitoring_namespace }} svc/{{ prometheus_stack_release }}-prometheus 9090:9090"
+          - "  Then browse to: http://localhost:9090"
+          - ""
+          - "AlertManager UI:"
+          - "  kubectl port-forward -n {{ monitoring_namespace }} svc/{{ prometheus_stack_release }}-alertmanager 9093:9093"
+          - "  Then browse to: http://localhost:9093"
+          - ""
+          - "If you are on Production mode, edit svc to NodePort or LoadBalancer (or Ingress)"
+          - "=========================================="

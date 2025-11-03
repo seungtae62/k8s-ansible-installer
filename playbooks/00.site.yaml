@@ -1,3 +1,5 @@
 - import_playbook: 01.os-config.yaml
 - import_playbook: 02.docker.yaml
 - import_playbook: 03.kubernetes.yaml
+- import_playbook: 04.cni.yaml
+- import_playbook: 05.monitoring.yaml
